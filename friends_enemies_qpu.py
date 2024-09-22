@@ -16,6 +16,8 @@ from random import choice
 ## ------- import packages -------
 import random
 import sys
+from toolz import assoc, thread_first
+from functools import reduce
 
 import matplotlib
 matplotlib.use("agg")
@@ -29,26 +31,13 @@ from dwave_networkx.algorithms.social import structural_imbalance
 
 FRIENDLY, HOSTILE = (1, -1)
 
-def get_graph():
+def get_graph(graph_size):
     """ Randomly generates a graph that represents a social network (nodes will
     represent people and edges represent relationships between people)
     """
-    def set_relations_between_people(graph):
-        """
-        Args:
-            graph: a collection of nodes where the nodes represent people and the edges relationships
-        Returns: adds a note to each edge saying whether the relationship between two people is positive or hostile
-        """
-        cpy = copy.deepcopy(graph)
-        for edge in cpy.edges:
-            edge['sign'] = choice([FRIENDLY, HOSTILE])
-        return cpy
-
-    graph_size = 4
 
     # Generate a random graph (with a 60% probability of edge creation)
-    G = nx.gnp_random_graph(graph_size, 0.60)
-    return set_relations_between_people(G)
+    return nx.gnp_random_graph(graph_size, 0.60)
 
 
 def get_qubo(G):
@@ -63,15 +52,27 @@ def get_qubo(G):
         :obj:`Dict`: A QUBO dictionary
     """
     # Build the Q matrix
+
+    def add_point_to_qubo(qubo, point):
+        """
+        Args:
+            qubo: a map of key value pairs of points and their corresponding penalty
+            point: a new point to add
+
+        Returns: adds point to the qubo
+        """
+        i, j = point
+        penalty = choice([FRIENDLY, HOSTILE])
+        return thread_first(qubo,
+                            (assoc, (i, i), penalty),
+                            (assoc, (j, j), penalty),
+                            (assoc, (i, j), -2 * penalty))
+
     Q = defaultdict(int)
 
-    sampler = DWaveSampler()
-    _, partitions = structural_imbalance(G, sampler)
-
-    return partitions
+    return reduce(add_point_to_qubo, list(G.edges()), Q)
 
 
-# TODO: Add the QPU sampler and return the sampleset
 def run_on_qpu(Q):
     """ Submits the QUBO to a QPU sampler and returns the sampleset
 
@@ -85,7 +86,8 @@ def run_on_qpu(Q):
 
     # Define the sampler and submit the QUBO
 
-    return
+    sampler = EmbeddingComposite(DWaveSampler())
+    return sampler.sample_qubo(Q, num_reads=1000)
 
 def visualize(G, Q, sampleset, problem_filename, solution_filename):
     """ Creates and saves plots that show the problem and solution returned in the lowest
@@ -155,7 +157,8 @@ def visualize(G, Q, sampleset, problem_filename, solution_filename):
 
     plt.savefig("partitioned_{}".format(solution_filename), bbox_inches='tight')
 
-def process_sampleset(G, sampleset):
+
+def process_sampleset(G, sampleset, qubo):
     """ Prints a summary of hostile and friendly edges in each set and between sets.
 
     Args:
@@ -178,18 +181,18 @@ def process_sampleset(G, sampleset):
     set0_friendly = 0
     set0_hostile = 0
     for i, j in subgraph0.edges:
-        if i != j and Q[(i, j)] < 0:
+        if i != j and qubo[(i, j)] < 0:
             set0_friendly += 1
-        elif i != j and Q[(i, j)] > 0:
+        elif i != j and qubo[(i, j)] > 0:
             set0_hostile += 1
 
     # Get friendly and hostile relationships in set 1
     set1_friendly = 0
     set1_hostile = 0
     for i, j in subgraph1.edges:
-        if i != j and Q[(i, j)] < 0:
+        if i != j and qubo[(i, j)] < 0:
             set1_friendly += 1
-        elif i != j and Q[(i, j)] > 0:
+        elif i != j and qubo[(i, j)] > 0:
             set1_hostile += 1
 
     # Get friendly and hostile relationships between the sets
@@ -197,9 +200,9 @@ def process_sampleset(G, sampleset):
     cut_friendly = 0
     cut_hostile = 0
     for i, j in cut_edges:
-        if i != j and Q[(i, j)] < 0:
+        if i != j and qubo[(i, j)] < 0:
             cut_friendly += 1
-        elif i != j and Q[(i, j)] > 0:
+        elif i != j and qubo[(i, j)] > 0:
             cut_hostile += 1
 
     # Print the results
@@ -223,20 +226,20 @@ if __name__ == "__main__":
         viz = True
 
     # Generate a graph of a social network
-    G = get_graph()
+    G = get_graph(10)
 
     # Solve this problem on a QPU solver
-    sampleset = get_qubo(G)
+    qubo = get_qubo(G)
 
-    if sampleset.variables:
-        process_sampleset(G, sampleset)
-    # if sampleset.variables != []:
-    #     # Visualize results
-    #     if viz:
-    #         visualize(G, Q, sampleset, "qpu_problem_graph.png", "qpu_solution_graph.png")
-    #
-    #     # Process results
-    #     process_sampleset(G, sampleset)
+    sampleset = run_on_qpu(qubo)
+
+    if sampleset.variables != []:
+        # Visualize results
+        if viz:
+            visualize(G, qubo, sampleset, "qpu_problem_graph.png", "qpu_solution_graph.png")
+
+        # Process results
+        process_sampleset(G, sampleset, qubo)
 
     else:
         print("\nNo samples returned.\n")
