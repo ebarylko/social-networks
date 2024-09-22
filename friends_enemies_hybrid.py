@@ -19,25 +19,22 @@ import sys
 import matplotlib
 matplotlib.use("agg")
 import matplotlib.pyplot as plt
+from random import choice
 
 import dimod
 import networkx as nx
 from dwave.system import LeapHybridSampler
+
 
 def get_graph():
     """ Randomly generates a graph that represents a social network (nodes will
     represent people and edges represent relationships between people)
     """
 
-    # TODO: Change this parameter to change the size of the graph
-    graph_size = 4
+    graph_size = 490
+    return nx.gnp_random_graph(graph_size, 0.60)
 
-    # Generate a random graph (with a 60% probability of edge creation)
-    G = nx.gnp_random_graph(graph_size, 0.60)
 
-    return G
-
-# TODO: Add code here to define a BQM
 def get_bqm(G):
     """ Randomly assign a friendly or hostile relationship to edges in the dictionary.
 
@@ -49,11 +46,17 @@ def get_bqm(G):
     Returns:
         :obj:`BinaryQuadraticModel`: A binary-valued binary quadratic model
     """
-    # Build the BQM
 
-    # Add linear and quadratic biases to the BQM
+    model = dimod.BinaryQuadraticModel('BINARY')
+    for x, y in G.edges():
+        penalty = choice([1, -1])
+        model.add_variable(x, penalty)
+        model.add_variable(y, penalty)
+        model.add_interaction(x,  y, penalty * -2)
 
-    return bqm
+    return model
+
+
 
 
 # TODO: Add the hybrid sampler and return the sampleset
@@ -70,10 +73,9 @@ def run_on_hybrid(bqm):
     Returns:
         :obj:`SampleSet`: The sampleset from the hybrid sampler
     """
+    sampler = LeapHybridSampler()
+    return sampler.sample(bqm)
 
-    # Define the sampler and submit the BQM
-
-    return
 
 def visualize(G, bqm, sampleset, problem_filename, solution_filename):
     """ Creates and saves plots that show the problem and solution returned in the lowest

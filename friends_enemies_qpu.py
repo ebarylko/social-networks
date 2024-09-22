@@ -16,7 +16,6 @@ from random import choice
 ## ------- import packages -------
 import random
 import sys
-from toolz import assoc, thread_first
 from functools import reduce
 
 import matplotlib
@@ -31,11 +30,12 @@ from dwave_networkx.algorithms.social import structural_imbalance
 
 FRIENDLY, HOSTILE = (1, -1)
 
-def get_graph(graph_size):
+
+def get_graph():
     """ Randomly generates a graph that represents a social network (nodes will
     represent people and edges represent relationships between people)
     """
-
+    graph_size = 10
     # Generate a random graph (with a 60% probability of edge creation)
     return nx.gnp_random_graph(graph_size, 0.60)
 
@@ -63,10 +63,11 @@ def get_qubo(G):
         """
         i, j = point
         penalty = choice([FRIENDLY, HOSTILE])
-        return thread_first(qubo,
-                            (assoc, (i, i), penalty),
-                            (assoc, (j, j), penalty),
-                            (assoc, (i, j), -2 * penalty))
+        cpy = copy.deepcopy(qubo)
+        cpy[(i, i)] = penalty
+        cpy[(j, j)] = penalty
+        cpy[(i, j)] = -2 * penalty
+        return cpy
 
     Q = defaultdict(int)
 
@@ -226,7 +227,7 @@ if __name__ == "__main__":
         viz = True
 
     # Generate a graph of a social network
-    G = get_graph(10)
+    G = get_graph()
 
     # Solve this problem on a QPU solver
     qubo = get_qubo(G)
