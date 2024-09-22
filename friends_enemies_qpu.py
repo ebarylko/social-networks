@@ -11,7 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import copy
+from random import choice
 ## ------- import packages -------
 import random
 import sys
@@ -24,22 +25,32 @@ from collections import defaultdict
 import networkx as nx
 import dimod
 from dwave.system import DWaveSampler, EmbeddingComposite
+from dwave_networkx.algorithms.social import structural_imbalance
+
+FRIENDLY, HOSTILE = (1, -1)
 
 def get_graph():
     """ Randomly generates a graph that represents a social network (nodes will
     represent people and edges represent relationships between people)
     """
+    def set_relations_between_people(graph):
+        """
+        Args:
+            graph: a collection of nodes where the nodes represent people and the edges relationships
+        Returns: adds a note to each edge saying whether the relationship between two people is positive or hostile
+        """
+        cpy = copy.deepcopy(graph)
+        for edge in cpy.edges:
+            edge['sign'] = choice([FRIENDLY, HOSTILE])
+        return cpy
 
-    # TODO: Change this parameter if you'd like to change the size of the graph (social network)
     graph_size = 4
 
     # Generate a random graph (with a 60% probability of edge creation)
     G = nx.gnp_random_graph(graph_size, 0.60)
+    return set_relations_between_people(G)
 
-    return G
 
-
-# TODO:  Add code here to define your QUBO dictionary
 def get_qubo(G):
     """ Randomly assign a friendly or hostile relationship to edges in the dictionary.
 
@@ -54,9 +65,10 @@ def get_qubo(G):
     # Build the Q matrix
     Q = defaultdict(int)
 
-    # Add QUBO construction here
+    sampler = DWaveSampler()
+    _, partitions = structural_imbalance(G, sampler)
 
-    return Q
+    return partitions
 
 
 # TODO: Add the QPU sampler and return the sampleset
@@ -106,11 +118,11 @@ def visualize(G, Q, sampleset, problem_filename, solution_filename):
     # Assign colors to nodes based on set membership
     blue = '#2a7de1'
     yellow = '#fcba03'
-    
+
     for i in G.nodes():
         if i not in sample:
             sample[i] = 0
-    
+
     nodecolors = [blue if sample[i] == 0 else yellow for i in G.nodes()]
 
     # Get a subset of the original graph (just the nodes assigned to group 1)
@@ -214,16 +226,17 @@ if __name__ == "__main__":
     G = get_graph()
 
     # Solve this problem on a QPU solver
-    Q = get_qubo(G)
-    sampleset = run_on_qpu(Q)
+    sampleset = get_qubo(G)
 
-    if sampleset.variables != []:
-        # Visualize results
-        if viz:
-            visualize(G, Q, sampleset, "qpu_problem_graph.png", "qpu_solution_graph.png")
-
-        # Process results
+    if sampleset.variables:
         process_sampleset(G, sampleset)
+    # if sampleset.variables != []:
+    #     # Visualize results
+    #     if viz:
+    #         visualize(G, Q, sampleset, "qpu_problem_graph.png", "qpu_solution_graph.png")
+    #
+    #     # Process results
+    #     process_sampleset(G, sampleset)
 
     else:
         print("\nNo samples returned.\n")
